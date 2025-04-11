@@ -5,44 +5,37 @@ import axios from "axios";
 
 export const config = {
   api: {
-    bodyParser: false, // para manejar archivos con formidable
+    bodyParser: false,
   },
 };
 
-export default async function handler(req, res) {
-  // 🔐 Habilitar CORS solo para tu dominio
-  res.setHeader("Access-Control-Allow-Origin", "https://gofarma.cl");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-
-  // 🔁 Manejar preflight de navegador
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  // el resto del código sigue igual...
-
-
-// 1. Reconstruir archivo de credenciales desde base64
+// 📂 Reconstruir archivo de credenciales desde variable base64
 const credentialsPath = "/tmp/credenciales-google.json";
 
 if (process.env.GOOGLE_CREDENTIALS_BASE64) {
   try {
     const jsonContent = Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, "base64").toString("utf-8");
     fs.writeFileSync(credentialsPath, jsonContent);
-    console.log("✅ Archivo de credenciales reconstruido en /tmp");
+    console.log("✅ Archivo de credenciales creado en /tmp");
   } catch (err) {
-    console.error("❌ Error reconstruyendo credenciales:", err);
+    console.error("❌ Error al reconstruir credenciales:", err);
   }
 }
 
-// 2. Inicializar cliente Google Vision
 const client = new ImageAnnotatorClient({
   keyFilename: credentialsPath,
 });
 
-// 3. Handler de la API en Vercel
 export default async function handler(req, res) {
+  // 🔐 Habilitar CORS para Shopify
+  res.setHeader("Access-Control-Allow-Origin", "https://gofarma.cl");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    return res.status(200).end(); // Preflight CORS OK
+  }
+
   if (req.method !== "POST") {
     return res.status(405).send("Método no permitido");
   }
@@ -57,9 +50,11 @@ export default async function handler(req, res) {
     try {
       const filePath = files.receta.filepath;
 
-      // 4. Procesar con OCR
+      // 👁️ Detectar texto desde imagen
       const [result] = await client.textDetection(filePath);
       const texto = result.textAnnotations?.[0]?.description || "";
+
+      console.log("📝 Texto extraído:", texto);
 
       const medicamentos = extraerMedicamentos(texto);
       const productos = await buscarProductosEnShopify(medicamentos);
@@ -67,23 +62,23 @@ export default async function handler(req, res) {
 
       return res.status(200).json({ link: carrito.checkoutUrl });
     } catch (error) {
-      console.error("❌ Error en el proceso:", error);
+      console.error("❌ Error procesando receta:", error);
       return res.status(500).json({ error: "Error procesando receta" });
     }
   });
 }
 
-// 5. Extraer medicamentos (simplificado)
+// 🔎 Extraer nombres simples de medicamentos desde OCR
 function extraerMedicamentos(texto) {
   return texto
     .toLowerCase()
     .split(/\n|,|;/)
     .map((linea) => linea.trim())
     .filter((l) => l.length > 3)
-    .slice(0, 5); // limitar a 5 resultados
+    .slice(0, 5);
 }
 
-// 6. Buscar productos en Shopify
+// 🔍 Buscar productos en Shopify
 async function buscarProductosEnShopify(nombres) {
   const productos = [];
 
@@ -130,7 +125,7 @@ async function buscarProductosEnShopify(nombres) {
   return productos;
 }
 
-// 7. Crear carrito en Shopify
+// 🛒 Crear carrito prellenado
 async function crearCarrito(productos) {
   const mutation = `
     mutation cartCreate($input: CartInput!) {
