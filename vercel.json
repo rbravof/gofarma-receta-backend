@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/procesar-receta.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/procesar-receta",
+      "dest": "api/procesar-receta.js"
+    }
+  ]
+}
