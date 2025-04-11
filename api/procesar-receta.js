@@ -9,16 +9,16 @@ export const config = {
   },
 };
 
-// 📂 Reconstruir archivo de credenciales desde variable base64
+// 🛠️ Reconstruir credenciales desde base64
 const credentialsPath = "/tmp/credenciales-google.json";
 
 if (process.env.GOOGLE_CREDENTIALS_BASE64) {
   try {
     const jsonContent = Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, "base64").toString("utf-8");
     fs.writeFileSync(credentialsPath, jsonContent);
-    console.log("✅ Archivo de credenciales creado en /tmp");
+    console.log("✅ Credenciales Google reconstruidas en /tmp");
   } catch (err) {
-    console.error("❌ Error al reconstruir credenciales:", err);
+    console.error("❌ Error reconstruyendo credenciales:", err);
   }
 }
 
@@ -27,13 +27,14 @@ const client = new ImageAnnotatorClient({
 });
 
 export default async function handler(req, res) {
-  // 🔐 Habilitar CORS para Shopify
+  // ✅ Configurar CORS
   res.setHeader("Access-Control-Allow-Origin", "https://gofarma.cl");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+  // ✅ Manejar preflight CORS
   if (req.method === "OPTIONS") {
-    return res.status(200).end(); // Preflight CORS OK
+    return res.status(200).end();
   }
 
   if (req.method !== "POST") {
@@ -50,11 +51,10 @@ export default async function handler(req, res) {
     try {
       const filePath = files.receta.filepath;
 
-      // 👁️ Detectar texto desde imagen
       const [result] = await client.textDetection(filePath);
       const texto = result.textAnnotations?.[0]?.description || "";
 
-      console.log("📝 Texto extraído:", texto);
+      console.log("📝 Texto extraído de receta:", texto);
 
       const medicamentos = extraerMedicamentos(texto);
       const productos = await buscarProductosEnShopify(medicamentos);
@@ -62,23 +62,23 @@ export default async function handler(req, res) {
 
       return res.status(200).json({ link: carrito.checkoutUrl });
     } catch (error) {
-      console.error("❌ Error procesando receta:", error);
+      console.error("❌ Error procesando la receta:", error);
       return res.status(500).json({ error: "Error procesando receta" });
     }
   });
 }
 
-// 🔎 Extraer nombres simples de medicamentos desde OCR
+// 🔍 Extraer nombres de medicamentos básicos desde texto OCR
 function extraerMedicamentos(texto) {
   return texto
     .toLowerCase()
     .split(/\n|,|;/)
-    .map((linea) => linea.trim())
+    .map((l) => l.trim())
     .filter((l) => l.length > 3)
     .slice(0, 5);
 }
 
-// 🔍 Buscar productos en Shopify
+// 🔎 Buscar productos en Shopify
 async function buscarProductosEnShopify(nombres) {
   const productos = [];
 
@@ -118,7 +118,7 @@ async function buscarProductosEnShopify(nombres) {
         productos.push({ merchandiseId: variante, quantity: 1 });
       }
     } catch (err) {
-      console.warn(`⚠️ No se pudo encontrar "${nombre}" en Shopify`);
+      console.warn(`⚠️ No se encontró "${nombre}" en Shopify`);
     }
   }
 
