@@ -9,17 +9,14 @@ export const config = {
   },
 };
 
-// 🛠️ Reconstruir credenciales desde base64
 const credentialsPath = "/tmp/credenciales-google.json";
 
-if (process.env.GOOGLE_CREDENTIALS_BASE64) {
-  try {
-    const jsonContent = Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, "base64").toString("utf-8");
-    fs.writeFileSync(credentialsPath, jsonContent);
-    console.log("✅ Credenciales Google reconstruidas en /tmp");
-  } catch (err) {
-    console.error("❌ Error reconstruyendo credenciales:", err);
-  }
+try {
+  const jsonContent = Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, "base64").toString("utf-8");
+  fs.writeFileSync(credentialsPath, jsonContent);
+  console.log("✅ Credenciales Google reconstruidas");
+} catch (err) {
+  console.error("❌ Error cargando credenciales:", err);
 }
 
 const client = new ImageAnnotatorClient({
@@ -27,48 +24,68 @@ const client = new ImageAnnotatorClient({
 });
 
 export default async function handler(req, res) {
-  // ✅ Configurar CORS
+  // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "https://gofarma.cl");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  // ✅ Manejar preflight CORS
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
 
   if (req.method !== "POST") {
-    return res.status(405).send("Método no permitido");
+    console.warn(`❌ Método HTTP no permitido: ${req.method}`);
+    return res.status(405).json({ error: "Método no permitido" });
   }
+
+  console.log("📩 Solicitud POST recibida");
 
   const form = new formidable.IncomingForm({ uploadDir: "/tmp", keepExtensions: true });
 
   form.parse(req, async (err, fields, files) => {
-    if (err || !files.receta) {
-      return res.status(400).json({ error: "Archivo no recibido correctamente" });
+    if (err) {
+      console.error("❌ Error al parsear formulario:", err);
+      return res.status(400).json({ error: "Error al parsear archivo de receta" });
     }
 
-    try {
-      const filePath = files.receta.filepath;
+    if (!files.receta) {
+      console.warn("⚠️ No se recibió archivo con campo 'receta'");
+      return res.status(400).json({ error: "No se recibió el archivo 'receta'" });
+    }
 
+    const filePath = files.receta.filepath;
+    const fileSize = files.receta.size;
+    const fileType = files.receta.mimetype;
+
+    console.log(`📎 Archivo recibido: ${filePath} (${fileType}) - ${fileSize} bytes`);
+
+    try {
       const [result] = await client.textDetection(filePath);
       const texto = result.textAnnotations?.[0]?.description || "";
 
-      console.log("📝 Texto extraído de receta:", texto);
+      console.log("🧠 Texto detectado por OCR:", texto);
 
       const medicamentos = extraerMedicamentos(texto);
+      console.log("🩺 Medicamentos detectados:", medicamentos);
+
       const productos = await buscarProductosEnShopify(medicamentos);
+      console.log("🛍️ Productos encontrados en Shopify:", productos);
+
+      if (!productos.length) {
+        return res.status(200).json({ error: "No se encontraron productos en el catálogo" });
+      }
+
       const carrito = await crearCarrito(productos);
+      console.log("🛒 Carrito generado:", carrito.checkoutUrl);
 
       return res.status(200).json({ link: carrito.checkoutUrl });
     } catch (error) {
-      console.error("❌ Error procesando la receta:", error);
-      return res.status(500).json({ error: "Error procesando receta" });
+      console.error("❌ Error interno en el procesamiento:", error);
+      return res.status(500).json({ error: "Error interno procesando receta", detalles: error.message });
     }
   });
 }
 
-// 🔍 Extraer nombres de medicamentos básicos desde texto OCR
 function extraerMedicamentos(texto) {
   return texto
     .toLowerCase()
@@ -78,7 +95,6 @@ function extraerMedicamentos(texto) {
     .slice(0, 5);
 }
 
-// 🔎 Buscar productos en Shopify
 async function buscarProductosEnShopify(nombres) {
   const productos = [];
 
@@ -118,14 +134,13 @@ async function buscarProductosEnShopify(nombres) {
         productos.push({ merchandiseId: variante, quantity: 1 });
       }
     } catch (err) {
-      console.warn(`⚠️ No se encontró "${nombre}" en Shopify`);
+      console.warn(`🔍 No se encontró "${nombre}" en Shopify`);
     }
   }
 
   return productos;
 }
 
-// 🛒 Crear carrito prellenado
 async function crearCarrito(productos) {
   const mutation = `
     mutation cartCreate($input: CartInput!) {
